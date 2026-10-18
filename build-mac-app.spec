@@ -34,7 +34,7 @@ coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='MotionPho
 app = BUNDLE(
     coll,
     name='动态照片转换.app',
-    icon=None,
+    icon='assets/icon.icns',
     bundle_identifier='io.github.jaron-admin.motionphoto2-zh',
     info_plist={
         'CFBundleName': '动态照片转换',

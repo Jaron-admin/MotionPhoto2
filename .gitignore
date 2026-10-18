@@ -210,3 +210,5 @@ Temporary Items
 *.HEIC
 *.AVIF
 *.HEIFexiftool_bundle/
+assets/icon.png
+assets/icon.icns
