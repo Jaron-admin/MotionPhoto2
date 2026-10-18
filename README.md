@@ -1,5 +1,7 @@
 # MotionPhoto2
 
+> **macOS 中文图形界面版（动态照片转换.app）**：见 [README_zh.md](README_zh.md)
+
 A small script to create Motion Photo v2/v3 from HEIC or JPG files and videos. Resulting files appear to be compatible with Google Photos and Samsung Gallery as a motion/live photo.
 
 In case the source is an iPhone Live Photo, the presentation timestamp will be migrated as well, thus the photo will start from the same keyframe.

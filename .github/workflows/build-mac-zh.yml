@@ -1,0 +1,87 @@
+name: 构建 macOS 中文版
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - 'mac_gui.py'
+      - 'motionphoto2.py'
+      - 'Muxer.py'
+      - 'utils.py'
+      - 'constants.py'
+      - 'SamsungTags.py'
+      - 'build-mac-app.spec'
+      - '.github/workflows/build-mac-zh.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest   # Apple 芯片（arm64）
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install lxml PyExifTool six pyinstaller
+
+      - name: 下载 ExifTool（内置到 App）
+        run: |
+          VER=$(curl -fsSL https://exiftool.org/ver.txt)
+          echo "ExifTool $VER"
+          curl -fsSL -o et.tar.gz "https://sourceforge.net/projects/exiftool/files/Image-ExifTool-${VER}.tar.gz/download"
+          tar -xzf et.tar.gz
+          mkdir -p exiftool_bundle
+          cp -R "Image-ExifTool-${VER}/exiftool" "Image-ExifTool-${VER}/lib" exiftool_bundle/
+          perl exiftool_bundle/exiftool -ver
+
+      - name: 检查转换核心
+        run: |
+          python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+          python mac_gui.py --cli --help
+
+      - name: 检查界面能否启动
+        continue-on-error: true
+        run: python mac_gui.py --selftest
+
+      - name: 打包 App
+        run: pyinstaller --noconfirm build-mac-app.spec
+
+      - name: 测试 App 内的转换核心
+        run: |
+          brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+          mkdir -p /tmp/t/in
+          ffmpeg -loglevel error -f lavfi -i testsrc=size=640x480:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p /tmp/t/in/IMG_0001.MOV
+          ffmpeg -loglevel error -f lavfi -i testsrc=size=640x480 -frames:v 1 /tmp/t/in/IMG_0001.JPG
+          "dist/动态照片转换.app/Contents/MacOS/MotionPhoto2zh" --cli --input-directory /tmp/t/in --output-directory "/tmp/t/输出" --copy-unmuxed
+          test -f "/tmp/t/输出/IMG_0001.JPG"
+
+      - name: 压缩
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent "动态照片转换.app" MotionPhoto2-zh-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MotionPhoto2-zh-macOS
+          path: dist/MotionPhoto2-zh-macOS.zip
+
+      - name: 发布到 Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: zh-v1.0.${{ github.run_number }}
+          name: 动态照片转换（macOS 中文版）v1.0.${{ github.run_number }}
+          make_latest: true
+          files: dist/MotionPhoto2-zh-macOS.zip
+          body: |
+            macOS（Apple 芯片）中文图形界面版，自动适配深色模式，不再弹出终端窗口，已内置 ExifTool。
+
+            **安装**：下载 `MotionPhoto2-zh-macOS.zip` → 解压 → 把「动态照片转换.app」拖进「应用程序」。
+            第一次打开如果提示无法验证开发者：系统设置 → 隐私与安全性 → 往下拉 → 仍要打开。

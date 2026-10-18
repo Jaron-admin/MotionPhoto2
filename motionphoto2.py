@@ -12,7 +12,34 @@ import shutil
 import sys
 
 from pathlib import Path
-from gooey import GooeyParser
+
+try:
+    from gooey import GooeyParser
+except ImportError:
+    # Gooey (wxPython) is optional: the macOS Chinese GUI (mac_gui.py) and
+    # plain command-line use don't need it. Strip Gooey-only keyword arguments
+    # so the same argument definitions work with the standard argparse.
+    def _strip_gooey_kwargs(kwargs):
+        kwargs.pop('widget', None)
+        kwargs.pop('gooey_options', None)
+        if kwargs.get('action') in ('store_true', 'store_false'):
+            kwargs.pop('metavar', None)
+        return kwargs
+
+    class GooeyParser(argparse.ArgumentParser):
+        def add_argument(self, *args, **kwargs):
+            return super().add_argument(*args, **_strip_gooey_kwargs(kwargs))
+
+        def add_argument_group(self, *args, **kwargs):
+            kwargs.pop('gooey_options', None)
+            group = super().add_argument_group(*args, **kwargs)
+            original_add_argument = group.add_argument
+
+            def add_argument(*a, **kw):
+                return original_add_argument(*a, **_strip_gooey_kwargs(kw))
+
+            group.add_argument = add_argument
+            return group
 
 from Muxer import Muxer
 from utils import is_motion_photo, extract_video_from_image, input_output_binary_compare, load_defaults, save_defaults
