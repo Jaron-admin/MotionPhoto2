@@ -37,3 +37,13 @@ pyinstaller --noconfirm build-mac-app.spec  # 打包成 .app
 ```
 
 推送到 main 分支后，GitHub Actions（`.github/workflows/build-mac-zh.yml`）会自动构建并发布到 Releases。
+
+## 开发与测试
+
+完成测试环境准备后，一条命令运行现有转换的回归测试：
+
+```bash
+.venv/bin/python tests/run_tests.py
+```
+
+详见 [测试与样本生成](docs/TESTING.md)、[项目结构与发布流程](docs/PROJECT_GUIDE.md)、[分阶段开发路线](docs/ROADMAP.md) 和 [已知问题](docs/KNOWN_ISSUES.md)。打包与发布前必须通过测试；原作者版权与 MIT 许可保持不变。

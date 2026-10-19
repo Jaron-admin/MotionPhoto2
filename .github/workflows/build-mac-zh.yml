@@ -13,12 +13,22 @@ on:
       - 'SamsungTags.py'
       - 'build-mac-app.spec'
       - '.github/workflows/build-mac-zh.yml'
+      - '.github/workflows/test.yml'
+      - 'tests/**'
+      - 'requirements-test.txt'
+      - 'requirements.txt'
 
 permissions:
   contents: write
 
 jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
   build:
+    needs: tests
     runs-on: macos-latest   # Apple 芯片（arm64）
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +40,8 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install lxml PyExifTool six pyinstaller pillow
+          pip install -r requirements-test.txt
+          pip install pyinstaller
 
       - name: 下载 ExifTool（内置到 App）
         run: |
@@ -41,6 +52,7 @@ jobs:
           mkdir -p exiftool_bundle
           cp -R "Image-ExifTool-${VER}/exiftool" "Image-ExifTool-${VER}/lib" exiftool_bundle/
           perl exiftool_bundle/exiftool -ver
+          echo "$PWD/exiftool_bundle" >> "$GITHUB_PATH"
 
       - name: 检查转换核心
         run: |
@@ -66,11 +78,8 @@ jobs:
       - name: 测试 App 内的转换核心
         run: |
           brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
-          mkdir -p /tmp/t/in
-          ffmpeg -loglevel error -f lavfi -i testsrc=size=640x480:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p /tmp/t/in/IMG_0001.MOV
-          ffmpeg -loglevel error -f lavfi -i testsrc=size=640x480 -frames:v 1 /tmp/t/in/IMG_0001.JPG
-          "dist/动态照片转换.app/Contents/MacOS/MotionPhoto2zh" --cli --input-directory /tmp/t/in --output-directory "/tmp/t/输出" --copy-unmuxed
-          test -f "/tmp/t/输出/IMG_0001.JPG"
+          python tests/run_tests.py --app "dist/动态照片转换.app/Contents/MacOS/MotionPhoto2zh"
+          codesign --verify --deep --strict --verbose=2 "dist/动态照片转换.app"
 
       - name: 压缩
         run: |

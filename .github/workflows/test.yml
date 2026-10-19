@@ -1,0 +1,26 @@
+name: 转换回归测试
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  conversion:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: 安装测试依赖
+        run: |
+          brew list exiftool >/dev/null 2>&1 || brew install exiftool
+          brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+          python -m pip install -r requirements-test.txt
+      - name: 验证真实照片与视频转换
+        run: python tests/run_tests.py
