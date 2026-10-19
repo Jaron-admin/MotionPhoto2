@@ -1,10 +1,19 @@
 name: 构建 macOS 中文版
 
 on:
+  pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: '发布正式 Release（仅 main/master；真实样本验收后使用）'
+        type: boolean
+        default: false
   push:
     branches: [master, main]
     paths:
+      - 'reverse/**'
+      - 'LICENSES/**'
+      - 'THIRD_PARTY_NOTICES.md'
       - 'mac_gui.py'
       - 'motionphoto2.py'
       - 'Muxer.py'
@@ -19,7 +28,7 @@ on:
       - 'requirements.txt'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   tests:
@@ -30,6 +39,7 @@ jobs:
   build:
     needs: tests
     runs-on: macos-latest   # Apple 芯片（arm64）
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -60,7 +70,6 @@ jobs:
           python mac_gui.py --cli --help
 
       - name: 检查界面能否启动
-        continue-on-error: true
         run: python mac_gui.py --selftest
 
       - name: 生成图标
@@ -79,6 +88,7 @@ jobs:
         run: |
           brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
           python tests/run_tests.py --app "dist/动态照片转换.app/Contents/MacOS/MotionPhoto2zh"
+          python tests/check_apple.py --app "dist/动态照片转换.app/Contents/MacOS/MotionPhoto2zh"
           codesign --verify --deep --strict --verbose=2 "dist/动态照片转换.app"
 
       - name: 压缩
@@ -91,6 +101,17 @@ jobs:
           name: MotionPhoto2-zh-macOS
           path: dist/MotionPhoto2-zh-macOS.zip
 
+  release:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MotionPhoto2-zh-macOS
+          path: dist
       - name: 发布到 Releases
         uses: softprops/action-gh-release@v2
         with:

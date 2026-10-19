@@ -3,7 +3,7 @@
 # 用法：pyinstaller --noconfirm build-mac-app.spec
 import os
 
-datas = []
+datas = [('LICENSE', '.'), ('THIRD_PARTY_NOTICES.md', '.'), ('LICENSES', 'LICENSES')]
 if os.path.isdir('exiftool_bundle'):
     # 内置 ExifTool（Perl 版），用户没装 Homebrew exiftool 时也能用
     datas.append(('exiftool_bundle', 'exiftool_bundle'))
@@ -13,7 +13,7 @@ a = Analysis(
     pathex=['.'],
     binaries=[],
     datas=datas,
-    hiddenimports=['motionphoto2', 'Muxer', 'utils', 'constants', 'SamsungTags', 'exiftool', 'lxml.etree'],
+    hiddenimports=['motionphoto2', 'Muxer', 'utils', 'constants', 'SamsungTags', 'exiftool', 'lxml.etree', 'reverse.cli', 'reverse.convert', 'reverse.detect', 'reverse.quicktime', 'reverse.photo', 'reverse.metadata', 'reverse.iso_bmff'],
     excludes=['gooey', 'wx'],
     noarchive=False,
 )

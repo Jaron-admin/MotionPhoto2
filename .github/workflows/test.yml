@@ -22,5 +22,7 @@ jobs:
           brew list exiftool >/dev/null 2>&1 || brew install exiftool
           brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
           python -m pip install -r requirements-test.txt
-      - name: 验证真实照片与视频转换
+      - name: 验证合成照片与视频转换
         run: python tests/run_tests.py
+      - name: 验证 Apple 完整实况识别（合成资源，不写入图库）
+        run: python tests/check_apple.py

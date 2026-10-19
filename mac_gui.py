@@ -29,6 +29,8 @@ SUPPORT_DIR = Path.home() / "Library" / "Application Support" / "MotionPhoto2-zh
 SETTINGS_FILE = SUPPORT_DIR / "settings.json"
 
 DEFAULT_SETTINGS = {
+    "direction": "live-to-motion",
+    "output_automatic": True,
     "input_directory": "",
     "output_directory": "",
     "exif_match": True,
@@ -37,6 +39,28 @@ DEFAULT_SETTINGS = {
     "incremental_mode": False,
     "verbose": False,
 }
+
+
+def updated_output(source, current, direction, automatic):
+    if current and not automatic:
+        return current
+    if not source:
+        return current
+    path = Path(source)
+    suffix = '_实况照片' if direction == 'motion-to-live' else '_动态照片'
+    return str(path.with_name(path.name + suffix))
+
+
+def conversion_arguments(settings):
+    direction = settings.get('direction', 'live-to-motion')
+    args = ['--direction', direction, '--input-directory', settings['input_directory'],
+            '--output-directory', settings['output_directory']]
+    options = [('recursive', '--recursive'), ('verbose', '--verbose')]
+    if direction == 'live-to-motion':
+        options += [('exif_match', '--exif-match'), ('copy_unmuxed', '--copy-unmuxed'),
+                    ('incremental_mode', '--incremental-mode')]
+    args.extend(flag for key, flag in options if settings[key])
+    return args
 
 
 # --------------------------------------------------------------------------
@@ -92,7 +116,10 @@ def run_cli(argv):
 def load_settings() -> dict:
     settings = dict(DEFAULT_SETTINGS)
     try:
-        settings.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+        saved = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        settings.update(saved)
+        if 'output_automatic' not in saved:
+            settings['output_automatic'] = not bool(saved.get('output_directory'))
     except Exception:
         pass
     return settings
@@ -121,6 +148,16 @@ def translate(line: str, copy_unmuxed: bool):
     s = line.strip()
     if not s:
         return "skip", None
+
+    if s.startswith('[REVERSE] '):
+        try:
+            event = json.loads(s[len('[REVERSE] '):])
+            kind = event['status']
+            icons = {'converted': '✅', 'plain': '📷', 'skipped': '⏭', 'unsupported': '⚠️', 'error': '❌'}
+            if kind in icons:
+                return kind, f"{icons[kind]} {event['name']}：{event['message']}"
+        except (ValueError, KeyError, TypeError):
+            pass
 
     m = RE_PROGRESS.match(s)
     if m:
@@ -202,6 +239,8 @@ def run_gui(selftest: bool = False):
             root.minsize(680, 560)
 
             self.var_in = tk.StringVar(value=self.settings["input_directory"])
+            self.var_direction = tk.StringVar(value=self.settings.get('direction', 'live-to-motion'))
+            self.output_automatic = self.settings.get('output_automatic', not bool(self.settings['output_directory']))
             self.var_out = tk.StringVar(value=self.settings["output_directory"])
             self.var_exif = tk.BooleanVar(value=self.settings["exif_match"])
             self.var_copy = tk.BooleanVar(value=self.settings["copy_unmuxed"])
@@ -211,6 +250,8 @@ def run_gui(selftest: bool = False):
             self.var_status = tk.StringVar(value="准备就绪")
 
             self.build()
+            self.var_out.trace_add('write', self.output_edited)
+            self.refresh_direction()
 
             # 把文件夹拖到 Dock 图标上
             try:
@@ -231,11 +272,16 @@ def run_gui(selftest: bool = False):
             outer.pack(fill="both", expand=True)
 
             ttk.Label(outer, text=APP_NAME, font=("PingFang SC", 22, "bold")).pack(anchor="w")
-            ttk.Label(
-                outer,
-                text="把 iPhone 实况照片（照片 + 视频）合成谷歌相册能识别的动态照片。原文件不会被修改。",
-                wraplength=720,
-            ).pack(anchor="w", pady=(4, 14))
+            self.description = ttk.Label(outer, wraplength=720)
+            self.description.pack(anchor='w', pady=(4, 10))
+            directions = ttk.Frame(outer)
+            directions.pack(fill='x', pady=(0, 12))
+            self.direction_buttons = []
+            for label, value in [('实况 → 动态', 'live-to-motion'), ('动态 → 实况（试用）', 'motion-to-live')]:
+                button = ttk.Radiobutton(directions, text=label, value=value,
+                                        variable=self.var_direction, command=self.refresh_direction)
+                button.pack(side='left', padx=(0, 22))
+                self.direction_buttons.append(button)
 
             # 1. 文件夹
             box1 = ttk.LabelFrame(outer, text=" 1. 选择文件夹 ", padding=(14, 10))
@@ -249,7 +295,7 @@ def run_gui(selftest: bool = False):
             ttk.Button(box1, text="选择…", command=self.choose_output).grid(row=1, column=2)
             ttk.Label(
                 box1,
-                text="小技巧：可以直接把照片文件夹拖到 Dock 里的本程序图标上。不选保存位置时，会自动新建「原文件夹名_动态照片」。",
+                text="小技巧：可以直接把照片文件夹拖到 Dock 里的本程序图标上。保存位置会随转换方向自动生成，也可自行选择。",
                 wraplength=700,
                 foreground="gray",
             ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -264,8 +310,12 @@ def run_gui(selftest: bool = False):
                 (self.var_inc, "跳过之前已经转换过的", "往同一个保存文件夹里追加新照片时打开"),
                 (self.var_verbose, "显示详细日志", "出问题、需要排查时再打开"),
             ]
+            self.forward_options = []
             for i, (var, title, desc) in enumerate(opts):
-                ttk.Checkbutton(box2, text=title, variable=var).grid(row=i, column=0, sticky="w", pady=2)
+                button = ttk.Checkbutton(box2, text=title, variable=var)
+                button.grid(row=i, column=0, sticky="w", pady=2)
+                if var in (self.var_exif, self.var_copy, self.var_inc):
+                    self.forward_options.append(button)
                 ttk.Label(box2, text=desc, foreground="gray").grid(row=i, column=1, sticky="w", padx=(12, 0))
 
             # 3. 开始
@@ -309,7 +359,7 @@ def run_gui(selftest: bool = False):
 
             ttk.Label(
                 outer,
-                text=f"v{APP_VERSION} · 转换核心：MotionPhoto2（Petr Vyskocil，MIT 许可）",
+                text=f"v{APP_VERSION} · MotionPhoto2（Petr Vyskocil，MIT）· 实况轨道模块：Apache-2.0",
                 foreground="gray",
             ).pack(anchor="e", pady=(6, 0))
 
@@ -330,14 +380,31 @@ def run_gui(selftest: bool = False):
             if d:
                 self.var_out.set(d)
 
+        def output_edited(self, *args):
+            self.output_automatic = False
+
+        def refresh_direction(self):
+            reverse = self.var_direction.get() == 'motion-to-live'
+            text = ('将 Google/Pixel 动态照片转换为照片 + MOV 配对，保留原文件。试用功能：真实 Pixel 照片导入与播放仍待验收。'
+                    if reverse else '把 iPhone 实况照片（照片 + 视频）合成谷歌相册能识别的动态照片。原文件不会被修改。')
+            self.description.configure(text=text)
+            for button in self.forward_options:
+                button.state(['disabled'] if reverse else ['!disabled'])
+            self.refresh_output()
+
+        def refresh_output(self):
+            automatic = self.output_automatic or not self.var_out.get().strip()
+            value = updated_output(self.var_in.get().strip(), self.var_out.get().strip(),
+                                   self.var_direction.get(), automatic)
+            self.var_out.set(value)
+            self.output_automatic = automatic
+
         def set_input(self, path):
             p = Path(path)
             if p.is_file():
                 p = p.parent
             self.var_in.set(str(p))
-            out = self.var_out.get().strip()
-            if not out or Path(out).resolve() == p.resolve():
-                self.var_out.set(str(p.parent / f"{p.name}_动态照片"))
+            self.refresh_output()
 
         def on_open_documents(self, *paths):
             if paths and not self.proc:
@@ -350,6 +417,8 @@ def run_gui(selftest: bool = False):
 
         def collect_settings(self):
             return {
+                "direction": self.var_direction.get(),
+                "output_automatic": self.output_automatic,
                 "input_directory": self.var_in.get().strip(),
                 "output_directory": self.var_out.get().strip(),
                 "exif_match": self.var_exif.get(),
@@ -366,8 +435,7 @@ def run_gui(selftest: bool = False):
                 messagebox.showwarning(APP_NAME, "请先选择照片所在的文件夹。")
                 return
             if not s["output_directory"]:
-                p = Path(inp)
-                s["output_directory"] = str(p.parent / f"{p.name}_动态照片")
+                s["output_directory"] = updated_output(inp, "", s["direction"], True)
                 self.var_out.set(s["output_directory"])
             out = Path(s["output_directory"])
             if out.exists() and out.resolve() == Path(inp).resolve():
@@ -376,20 +444,13 @@ def run_gui(selftest: bool = False):
             if out.exists() and out.is_file():
                 messagebox.showwarning(APP_NAME, "保存位置是一个文件，请选择文件夹。")
                 return
+            if s['direction'] == 'motion-to-live' and Path(inp).resolve() in out.resolve().parents:
+                messagebox.showwarning(APP_NAME, '反向转换的保存位置不能位于输入文件夹内。')
+                return
             save_settings(s)
             self.current = s
 
-            args = ["--input-directory", inp, "--output-directory", str(out)]
-            if s["exif_match"]:
-                args.append("--exif-match")
-            if s["copy_unmuxed"]:
-                args.append("--copy-unmuxed")
-            if s["recursive"]:
-                args.append("--recursive")
-            if s["incremental_mode"]:
-                args.append("--incremental-mode")
-            if s["verbose"]:
-                args.append("--verbose")
+            args = conversion_arguments(s)
 
             if getattr(sys, "frozen", False):
                 cmd = [sys.executable, "--cli"] + args
@@ -408,13 +469,15 @@ def run_gui(selftest: bool = False):
                 self.proc = None
                 return
 
-            self.stats = {"converted": 0, "copied": 0, "skipped": 0, "plain": 0, "error": 0, "warning": 0}
+            self.stats = {"converted": 0, "copied": 0, "skipped": 0, "plain": 0, "error": 0, "warning": 0, "unsupported": 0}
             self.text.configure(state="normal")
             self.text.delete("1.0", "end")
             self.text.configure(state="disabled")
             self.progress.configure(value=0)
             self.var_status.set("正在转换…")
             self.btn_run.state(["disabled"])
+            for button in self.direction_buttons:
+                button.state(["disabled"])
             self.btn_stop.state(["!disabled"])
             self.btn_open.state(["disabled"])
 
@@ -460,12 +523,19 @@ def run_gui(selftest: bool = False):
         def finish(self, returncode):
             st = self.stats
             self.proc = None
+            for button in self.direction_buttons:
+                button.state(["!disabled"])
             self.btn_run.state(["!disabled"] if self.exiftool_ok else ["disabled"])
             self.btn_stop.state(["disabled"])
             if returncode == 0:
                 self.progress.configure(value=100)
-                summary = f"完成！合成动态照片 {st['converted']} 张"
-                if self.current["copy_unmuxed"]:
+                noun = '生成实况照片' if self.current['direction'] == 'motion-to-live' else '合成动态照片'
+                summary = f"完成！{noun} {st['converted']} 张"
+                if st['unsupported']:
+                    summary += f"，暂不支持 {st['unsupported']} 张"
+                if st['plain'] and self.current['direction'] == 'motion-to-live':
+                    summary += f"，普通照片 {st['plain']} 张"
+                if self.current["copy_unmuxed"] and self.current['direction'] == 'live-to-motion':
                     summary += f"，复制普通照片和视频 {st['copied']} 个"
                 if st["skipped"]:
                     summary += f"，跳过 {st['skipped']} 个"
@@ -475,7 +545,7 @@ def run_gui(selftest: bool = False):
                 self.log("")
                 self.log("🎉 " + summary)
                 self.btn_open.state(["!disabled"])
-            elif returncode in (-15, -9):
+            elif returncode in (-15, -9, 130):
                 self.var_status.set("已停止")
                 self.log("⏹ 已停止。")
                 if Path(self.current["output_directory"]).exists():

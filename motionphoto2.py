@@ -71,6 +71,8 @@ def main():
         prog="MotionPhoto2",
         description="Mux HEIC and JPG Live Photos into Google/Samsung Motion Photos",
     )
+    parser.add_argument('--direction', choices=('live-to-motion', 'motion-to-live'),
+                        default='live-to-motion', help='Conversion direction (default: live-to-motion)')
     
     dir_group = parser.add_argument_group(
         "Process a Directory",
@@ -236,6 +238,10 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.direction == 'motion-to-live':
+        from reverse.cli import run_reverse
+        sys.exit(run_reverse(args, parser))
 
     if sys.stdout.encoding != 'UTF-8':
         sys.stdout = Unbuffered(codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict'))
