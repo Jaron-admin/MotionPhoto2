@@ -55,6 +55,73 @@ def entries(data, box, width):
     return [p[i:i+width] for i in range(8, len(p), width)]
 
 
+def descriptors(data, start=0):
+    """ISO 14496-1 descriptors, with bounded variable-length size fields."""
+    values = []
+    pos = start
+    while pos < len(data):
+        if len(values) >= 64:
+            raise ValueError('音频描述过多')
+        tag = data[pos]
+        pos += 1
+        size = 0
+        for _ in range(4):
+            if pos >= len(data):
+                raise ValueError('音频描述截断')
+            byte = data[pos]
+            pos += 1
+            size = (size << 7) | (byte & 127)
+            if not byte & 128:
+                break
+        else:
+            raise ValueError('音频描述长度无效')
+        if size > len(data)-pos:
+            raise ValueError('音频描述长度越界')
+        values.append((tag, data[pos:pos+size]))
+        pos += size
+    return values
+
+
+def validate_aac(description):
+    if len(description) < 28 or description[8:10] != b'\0\0':
+        raise ValueError('暂不支持此音频描述，需要 AAC-LC')
+    boxes = parse_atoms(description, 28)
+    esds = [b for b in boxes if b.type == b'esds']
+    if len(esds) != 1 or any(b.type == b'sinf' for b in boxes):
+        raise ValueError('暂不支持此音频编码，需要未加密 AAC-LC')
+    descriptor = payload(description, esds[0], 4)
+    top = descriptors(descriptor, 4)
+    if len(top) != 1 or top[0][0] != 3 or len(top[0][1]) < 3:
+        raise ValueError('AAC 的 ES 描述无效')
+    es = top[0][1]
+    flags = es[2]
+    pos = 3 + (2 if flags & 128 else 0)
+    if flags & 64:
+        if pos >= len(es):
+            raise ValueError('AAC 的 URL 描述截断')
+        pos += 1 + es[pos]
+    pos += 2 if flags & 32 else 0
+    if pos > len(es):
+        raise ValueError('AAC 的 ES 描述截断')
+    configs = [v for tag, v in descriptors(es, pos) if tag == 4]
+    if len(configs) != 1 or len(configs[0]) < 13:
+        raise ValueError('AAC 解码配置缺失')
+    config = configs[0]
+    if config[0] != 0x40 or config[1] >> 2 != 5:
+        raise ValueError('暂不支持此音频编码，需要 AAC-LC（mp4a 标签不代表 AAC）')
+    specific = [v for tag, v in descriptors(config, 13) if tag == 5]
+    if len(specific) != 1 or len(specific[0]) < 2:
+        raise ValueError('AAC AudioSpecificConfig 缺失')
+    bits = ''.join(f'{byte:08b}' for byte in specific[0])
+    object_type = int(bits[:5], 2)
+    frequency_index = int(bits[5:9], 2)
+    if object_type != 2 or frequency_index > 12:
+        raise ValueError('暂不支持此 AAC 配置，需要标准采样率 AAC-LC')
+    channels = int(bits[9:13], 2)
+    if channels not in (1, 2) or bits[13:16] != '000':
+        raise ValueError('暂不支持此 AAC 配置，需要单声道或双声道 AAC-LC')
+
+
 def track_info(data, track, mdats, movie_scale):
     tkhd = one(data, track, b'tkhd')
     p = payload(data, tkhd, 24)
@@ -91,6 +158,8 @@ def track_info(data, track, mdats, movie_scale):
     description = payload(sd, desc, 8)
     if description[6:8] != b'\0\1':
         raise ValueError('无效的采样媒体引用')
+    if handler == b'soun':
+        validate_aac(description)
     if handler == b'vide':
         if len(description) < 78:
             raise ValueError('视频采样描述截断')
@@ -213,6 +282,8 @@ def write_live_mov(source, output, identifier, timestamp_us=None):
             tracks = [b for b in child_atoms(data, moov) if b.type == b'trak']
             if any(b.type in {b'mvex', b'cmov'} for b in child_atoms(data, moov)):
                 raise ValueError('不支持碎片化或压缩索引')
+            if not 1 <= len(tracks) <= 2:
+                raise ValueError('暂不支持多于两个轨道的视频')
             infos = [track_info(data, track, mdats, scale) for track in tracks]
             videos = [i for i in infos if i[1] == b'vide']
             if len(videos) != 1 or len(infos) > 2:

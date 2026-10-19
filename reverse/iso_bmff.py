@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 杨振
+# Modified by MotionPhoto2: bound atom counts to limit untrusted-input memory use.
 from __future__ import annotations
 
 import struct
@@ -56,6 +57,8 @@ def parse_atoms(data: bytes | bytearray, start: int = 0, end: int | None = None)
     result: list[Atom] = []
     position = start
     while position < boundary:
+        if len(result) >= 10000:
+            raise ValueError('容器段数量超过安全上限')
         if position + 8 > boundary:
             raise ValueError("ISO-BMFF atom 头部不完整")
         size = int.from_bytes(data[position : position + 4], "big")

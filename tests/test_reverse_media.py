@@ -107,3 +107,20 @@ class ReverseMediaTests(unittest.TestCase):
         info = json.loads(run(['exiftool', '-j', '-n', output]))[0]
         self.assertEqual(info['Rotation'], 90)
         run(['ffmpeg', '-v', 'error', '-i', output, '-f', 'null', '-'])
+
+    def test_mp3_in_mp4a_is_not_misidentified_as_aac(self):
+        from reverse.quicktime import write_live_mov
+        source = self.root/'mp3-in-mp4.mp4'
+        run(['ffmpeg', '-v', 'error', '-i', self.movie, '-c:v', 'copy', '-c:a', 'libmp3lame', source])
+        info = json.loads(run(['ffprobe', '-v', 'error', '-select_streams', 'a', '-show_streams', '-of', 'json', source]))
+        self.assertEqual(info['streams'][0]['codec_tag_string'], 'mp4a')
+        self.assertEqual(info['streams'][0]['codec_name'], 'mp3')
+        with self.assertRaisesRegex(ValueError, 'AAC'):
+            write_live_mov(source, self.root/'mp3-in-mp4.mov', CONTENT_ID, None)
+
+    def test_box_flood_is_rejected_before_allocating_an_unbounded_index(self):
+        from reverse.iso_bmff import parse_atoms
+        # Just 1 MiB of tiny boxes previously allocated ~18 MiB Python heap.
+        payload = struct.pack('>I4s', 8, b'free') * 131072
+        with self.assertRaises(ValueError):
+            parse_atoms(payload)

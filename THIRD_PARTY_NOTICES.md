@@ -4,3 +4,5 @@
 
 Other MotionPhoto2 code retains its existing MIT license and notices. Test-only native control generation used nicing/make-live-photo as a temporary reference; that external generator is not distributed here.
 
+The upstream NOTICE is reproduced verbatim in `LICENSES/video-to-live-photo-NOTICE.txt`, and the complete `LICENSES` directory is included in the App bundle.
+

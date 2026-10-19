@@ -173,7 +173,9 @@ def detect(path):
                 if mime != 'image/heic':
                     raise ValueError('暂不支持该图片结构')
                 top = parse_atoms(data)
-                if not top or top[0].type != b'ftyp' or not any(brand in top[0].raw(data) for brand in (b'heic', b'heix')):
+                if not top or top[0].type != b'ftyp' or top[0].size > 4096:
+                    raise ValueError('HEIC 类型头缺失或超过安全上限')
+                if not any(brand in top[0].raw(data) for brand in (b'heic', b'heix')):
                     raise ValueError('暂不支持该 HEIF 编码')
                 mpvd = [b for b in top if b.type == b'mpvd']
                 if len(mpvd) != 1 or mpvd[0] is not top[-1] or mpvd[0].payload_start != start or mpvd[0].header_size != padding or data[mpvd[0].start:mpvd[0].start+4] == b'\0'*4:
