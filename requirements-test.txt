@@ -1,0 +1,6 @@
+# Headless conversion tests; Gooey/wxPython are not required.
+lxml>=5,<7
+PyExifTool>=0.5.6,<0.6
+six>=1.16,<2
+Pillow>=11,<14
+pillow-heif>=1,<2
