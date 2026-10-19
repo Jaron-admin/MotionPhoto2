@@ -1,6 +1,6 @@
 # 阶段 1：动态照片转实况照片方案
 
-状态：待用户确认；已完成代码阅读与格式调研，尚未实现反向转换。
+状态：已补充 GitHub 现成项目核查；推荐先评估可复用模块，尚未实现产品反向转换。
 
 来源：[Notion 任务书](https://app.notion.com/p/Codex-8297e162aced4ee7952817135594b112?source=copy_link)。
 基础：阶段 0 的提交 `2d64413`，对应 [PR #1](https://github.com/Jaron-admin/MotionPhoto2/pull/1)，回归测试已通过。阶段 1 使用独立分支 `codex/stage-1-reverse-live-photo`；本方案不代表 PR #1 已合并。
@@ -22,11 +22,36 @@
 
 | 方案 | 收益 | 代价或限制 | 决定 |
 | --- | --- | --- | --- |
-| Python 写入受限的 QuickTime 容器结构，沿用 ExifTool 管理图片元数据 | 核心不依赖 macOS API；不用让用户再安装运行工具；保留编码媒体数据 | 需要严格测试轨道时间、采样表与字节偏移；必须先证明 Apple 能识别 | 推荐，先验证最小配对文件 |
+| 优先评估已有 Python QuickTime 写入模块，沿用 ExifTool 管理图片元数据 | 核心不依赖 macOS API；减少重复实现；保留编码媒体数据 | 现成模块需适配与独立验证，不能直接作为已通过 Apple 验收的依赖 | 推荐先做复用验证，不直接从零重写 |
 | Python 检测提取，Swift/AVFoundation 生成实况 MOV | 使用 Apple 的媒体写入 API | 产品转换路径依赖 macOS，与任务书核心可移植的约束冲突 | 不作为默认方案；第一方案不可行时另行讨论 |
 | 仅提取图片与视频，或只写同一个 UUID | 实现较少 | 缺少实况时间轨道及 Apple 验证，达不到验收目标 | 排除 |
 
 推荐方案目前是设计判断，不是兼容性结论。第一项实现工作就是生成最小输出，并通过独立媒体读取器和 Apple 框架验证；失败时先诊断，不先扩展界面或把拆分功能标成实况转换成功。
+
+## GitHub 现成项目核查（2026-10-19）
+
+用户要求先查现成项目；结果是存在直接转换工具和可供复用的底层实现，不应再以“没有现成方案”为开发前提。以下核查以源码为主；作者的兼容性声明与本地实测分开记录。
+
+| 项目及检查版本 | 已有能力 | 对本项目的适用性 |
+| --- | --- | --- |
+| [AssassinJY/live_motion_photos_convert](https://github.com/AssassinJY/live_motion_photos_convert/tree/28d74fdf3ab92ced30590611be7ec9798082b931)，MIT | 双向转换；macOS 路径用 Swift/AVFoundation 写入实况时间轨道。README 声明在 macOS「照片」验证过 | 最接近完整功能参考；工具依赖较多，图片转成 HEIC，非 macOS 回退路径不能等同完整轨道能力。需保留本项目原画质和核心可移植约束 |
+| [reviventura/LivePhotoTools](https://github.com/reviventura/LivePhotoTools/tree/fbe7be3e165bde2c6448c7ab66fe5f53ab0e591f)，MIT | 已有 Apple Silicon / macOS 15+ App，含 Motion2Live；提供 v1.0 下载，JPG 图片字节不重编码 | 可试用的现成应用；Motion2Live 子目录 README 明确不生成 still-image-time 轨道，且已有核验是格式对比、不是导入测试，不能直接替代本项目验收 |
+| [yangzhen-23/video-to-live-photo](https://github.com/yangzhen-23/video-to-live-photo/tree/83b55e6e66b6cbb39e7d7acddbbb52eef1585adc)，Apache-2.0 | Python `apple.py` / `iso_bmff.py` 已实现 UUID、mebx 时间轨道和采样偏移调整，有对应单元测试 | 与现有 Python 核心最接近，优先评估视频写入模块。上游目标是视频生成实况，尚需补动态照片检测和 HEIC；图片写入会重编码并改写 Make/Model，不能原样使用 |
+| [Albresky/MotionPhoto2AppleLivePhoto](https://github.com/Albresky/MotionPhoto2AppleLivePhoto/tree/3b198540ce9dde9b60b728fb4d9bf18e8aaa0367) | Python 直接处理 Google/小米动态照片，带 Web UI，输出 HEIC + MOV | 主转换链重新编码图片，视频链只做 remux 与 ContentIdentifier 注入，未找到新增 still-image-time 的步骤；未找到项目本身的明确许可，不纳入代码复用候选 |
+
+也检查了 `nicing/make-live-photo`、`Bai-Mirror/pyheic_struct`、`Huakira/MotionTrans`、`google/libmotionphoto` 等。它们分别更偏向 Apple 原生生成、三星 HEIC 处理、平台专用转换或 Google 格式解析，不能直接替换现有产品所需的完整流程。
+
+### 临时小样本结果
+
+只在 `/tmp/motionphoto-reuse-check` 运行外部 Python 模块，未复制到产品目录、未导入用户照片图库。样本是新生成的 96×64 静态图与 3 秒 H.264 视频。
+
+- 上游 Python 输出的图片和视频，ExifTool 读出的 ContentIdentifier 一致。
+- ffprobe 识别到 `mebx` 轨道，起始时间为请求的 1.5 秒；FFmpeg 完整解码视频成功。
+- ExifTool 读到 StillImageTime = -1；SampleTime 显示 0，而 ffprobe 显示编辑列表后的时间为 1.5 秒，验证不能只检查一个工具的单一字段。
+- 图片 Make/Model 被上游改为 Apple / Video to Live Photo，与本项目保留实际设备信息的要求不符。
+- 本机 macOS 27.0 的 `PHLivePhoto.request` 检查未返回有效 Live Photo 对象；移出沙箱复查后仍未成功。该试验没有已知有效资源作为阳性对照，不能据此断言是上游代码缺陷，也不能宣称已被 Apple 接受。更换 MakerNote 存放位置的单一试验未解决它。
+
+结论：已有代码能减少重复实现，尚无本次检查已证明满足所有要求的即插即用替代。优先评估 Apache-2.0 视频模块，保留作者署名及许可；先补独立 Apple 验证与容器边界测试，再决定适配范围。不要原样引入其图片重编码逻辑；不要把有许可证的参考代码统一改标成原项目 MIT。
 
 ## 支持范围与产品行为
 
@@ -73,8 +98,8 @@ FFmpeg/ffprobe 在推荐方案中继续仅用于测试。尚未证明纯 Python 
 ## 当前可确认的状态
 
 - 已阅读现有正向转换、ExifTool 提取函数、中文界面分派和打包配置。
-- 已建立阶段 1 独立本地分支；本次仅新增方案文档。
-- 尚未生成反向转换文件，也未修改功能代码或发布 App。
+- 已建立阶段 1 独立本地分支；仓库改动仍只有方案文档。
+- 已在临时目录测试外部项目的小型配对文件；尚未实现产品反向转换，未修改功能代码或发布 App。
 - 仓库未找到真实 Pixel 样本；样本缺失不阻塞合成测试与代码开发，但会阻塞“真实 Pixel 已验收”的结论。
 
-待确认的是上述产品范围、推荐的可移植实现路线及验收顺序。确认后先完成最小输出验证，再逐步实现其余部分。
+后续优先验证现成模块能否满足上述产品范围和验收要求，再决定适配或自行补足的部分。
