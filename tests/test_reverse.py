@@ -135,3 +135,22 @@ class ReverseTests(unittest.TestCase):
         results = list(convert_directory(self.source, self.output, recursive=True))
         self.assertEqual(results[0].status, 'error')
         self.assertFalse((self.source/'照片.MOV').exists())
+
+    def test_cancellation_during_second_publish_removes_temporary_pair(self):
+        from reverse.convert import convert_file
+        source = self.fixture()
+        link = os.link
+        def interrupt_second(src, dst, **kwargs):
+            if str(dst).endswith('.MOV'):
+                raise KeyboardInterrupt
+            return link(src, dst, **kwargs)
+        with patch('reverse.convert.os.link', side_effect=interrupt_second), self.assertRaises(KeyboardInterrupt):
+            convert_file(source, self.output)
+        self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_legacy_offset_cannot_recover_corrupt_current_directory(self):
+        from reverse.convert import convert_file
+        source = self.fixture(offset_adjust=10)
+        run(['exiftool', '-overwrite_original', '-XMP-GCamera:MicroVideo=1',
+             f'-XMP-GCamera:MicroVideoOffset={(self.samples/"PHOTO.MOV").stat().st_size}', source])
+        self.assertEqual(convert_file(source, self.output).status, 'error')

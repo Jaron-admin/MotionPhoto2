@@ -75,3 +75,35 @@ class ReverseMediaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             write_live_mov(fragmented, self.root / 'fragmented.mov', CONTENT_ID, None)
         self.assertFalse((self.root / 'fragmented.mov').exists())
+
+    def test_corrupt_chunk_offset_and_external_reference_are_rejected(self):
+        from reverse.quicktime import write_live_mov
+        raw = self.movie.read_bytes()
+        for name, marker, delta, replacement in (
+            ('offset', b'stco', 12, b'\xff'*4),
+            ('external', b'url ', 4, b'\0'*4),
+        ):
+            altered = bytearray(raw)
+            at = altered.index(marker) + delta
+            altered[at:at+4] = replacement
+            source = self.root/(name+'.mp4')
+            source.write_bytes(altered)
+            output = self.root/(name+'.mov')
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                write_live_mov(source, output, CONTENT_ID, None)
+            self.assertFalse(output.exists())
+
+    def test_hevc_rotation_and_extra_media_box_survive_remux(self):
+        from reverse.quicktime import write_live_mov
+        source = self.root/'hevc.mp4'
+        run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=96x64:rate=10', '-t', '0.5',
+             '-c:v', 'libx265', '-x265-params', 'log-level=error:pools=1', '-tag:v', 'hvc1', source])
+        run(['exiftool', '-overwrite_original', '-Rotation=90', source])
+        # A second mdat must not cause the first one's bytes to be dropped.
+        with source.open('ab') as output:
+            output.write(struct.pack('>I4s', 12, b'mdat') + b'test')
+        output = self.root/'hevc.mov'
+        write_live_mov(source, output, CONTENT_ID, -1)
+        info = json.loads(run(['exiftool', '-j', '-n', output]))[0]
+        self.assertEqual(info['Rotation'], 90)
+        run(['ffmpeg', '-v', 'error', '-i', output, '-f', 'null', '-'])
