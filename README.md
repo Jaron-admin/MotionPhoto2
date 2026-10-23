@@ -10,6 +10,12 @@ Photos are created to mimic the way Galaxy S23 Ultra and Tab S9 phones create HE
 
 ![GUI Screenshot](documentation/images/GUI.png?raw=true "GUI")
 
+## License
+
+This modified distribution is licensed under **GNU GPL version 3 only** (`GPL-3.0-only`). Jaron-admin's own modifications are offered under these terms; see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md).
+
+The original [PetrVys/MotionPhoto2](https://github.com/PetrVys/MotionPhoto2) code remains available under its original MIT terms. Its full copyright and permission notice is preserved unchanged in [LICENSES/MIT.txt](LICENSES/MIT.txt). Third-party dependencies retain their own licenses; this fork does not relicense the upstream project or revoke rights already granted for earlier versions.
+
 ## Installation
 
 ### Windows
