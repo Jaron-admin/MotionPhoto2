@@ -10,6 +10,12 @@
 - **内置 ExifTool**，不用另外安装（装了 Homebrew 版会优先使用）
 - 记住上次的文件夹和选项
 
+## 许可证
+
+本仓库的衍生版本整体及 Jaron-admin 有权授权的原创修改采用 **GNU GPL 仅第 3 版**（`GPL-3.0-only`），见 [LICENSE](LICENSE) 与 [许可范围及分发说明](LICENSING.md)。
+
+上游 MotionPhoto2 代码保留原 MIT 许可；[LICENSES/MIT.txt](LICENSES/MIT.txt) 完整保留 Petr Vyskocil 的版权与授权原文。本声明不修改上游项目的许可，也不撤销旧版本已经授予的权利；ExifTool 等第三方组件继续适用各自许可。
+
 ## 下载安装
 
 1. 到 [Releases](../../releases/latest) 下载 `MotionPhoto2-zh-macOS.zip`
